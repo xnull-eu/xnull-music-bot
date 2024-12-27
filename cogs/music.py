@@ -42,6 +42,7 @@ class Music(commands.Cog):
         self.current_position = {}  # Track current position in queue per guild
         self.stopped_position = {}  # Track where playback was stopped
         self.skip_next_progression = {}  # New flag to control auto-progression
+        self.original_channels = {}  # Track original command channels per guild
 
     async def cleanup(self, guild_id):
         """Cleanup resources for a guild"""
@@ -53,7 +54,7 @@ class Music(commands.Cog):
                 pass
             del self.active_players[guild_id]
 
-    async def play_next(self, guild, force_position=None, interaction=None):
+    async def play_next(self, guild, force_position=None, interaction=None, command_channel=None):
         if not guild.id in self.bot.music_queues or not self.bot.music_queues[guild.id]:
             return
 
@@ -120,7 +121,7 @@ class Music(commands.Cog):
                 next_pos = position + 1
                 if next_pos < len(self.bot.music_queues[guild.id]):
                     self.current_position[guild.id] = next_pos
-                    await self.play_next(guild)
+                    await self.play_next(guild, command_channel=command_channel)
                 return
 
             # Create audio source
@@ -166,15 +167,15 @@ class Music(commands.Cog):
                 
                 # Only send message if not being called from a command
                 if not interaction:
-                    await self.send_playing_message(guild, track)
+                    await self.send_playing_message(guild, track, command_channel=command_channel)
 
         except Exception as e:
-            logger.error(f"Error playing track: {str(e)}", exc_info=True)  # Added exc_info for full traceback
+            logger.error(f"Error playing track: {str(e)}", exc_info=True)
             # Try to recover by playing next song
             next_pos = self.current_position.get(guild.id, 0) + 1
             if next_pos < len(self.bot.music_queues[guild.id]):
                 self.current_position[guild.id] = next_pos
-                await self.play_next(guild)
+                await self.play_next(guild, command_channel=command_channel)
 
     async def handle_playback_error(self, guild):
         """Handle playback errors by attempting to restart the track"""
@@ -189,7 +190,7 @@ class Music(commands.Cog):
                 self.bot.music_queues[guild.id].pop(0)
             await self.play_next(guild)
 
-    async def send_playing_message(self, guild, track_info, interaction=None):
+    async def send_playing_message(self, guild, track_info, interaction=None, command_channel=None):
         """Send a message indicating what's playing"""
         try:
             embed = discord.Embed(
@@ -201,17 +202,21 @@ class Music(commands.Cog):
             # If interaction is provided, send as reply
             if interaction:
                 await interaction.followup.send(embed=embed)
-            # Otherwise send to first text channel
+            # If command_channel is provided, use that
+            elif command_channel:
+                await command_channel.send(embed=embed)
             else:
-                text_channels = guild.text_channels
-                if text_channels:
-                    channel = text_channels[0]
-                    await channel.send(embed=embed)
+                logger.debug("No channel provided to send playing message")
+                    
         except Exception as e:
             logger.error(f"Error sending playing message: {e}")
 
     @app_commands.command(name="play", description="Play a song from YouTube or queue")
     async def play(self, interaction: discord.Interaction, query: Optional[str] = None, position: Optional[int] = None):
+        # Store the original channel when starting playback
+        if not interaction.guild.id in self.bot.music_queues:
+            self.original_channels[interaction.guild.id] = interaction.channel
+        
         await interaction.response.defer()
 
         if not interaction.user.voice:
@@ -243,14 +248,16 @@ class Music(commands.Cog):
                 interaction.guild.voice_client.stop()
                 await asyncio.sleep(0.5)
             
-            # Update position and prevent auto-progression
+            # Update position
             self.current_position[interaction.guild.id] = position_index
-            self.skip_next_progression[interaction.guild.id] = True
             
             # Play the selected song and send styled message as reply
             track = self.bot.music_queues[interaction.guild.id][position_index]
             await self.send_playing_message(interaction.guild, track, interaction)
-            await self.play_next(interaction.guild, interaction=interaction)  # Pass interaction
+            
+            # Reset the skip flag before playing to allow auto-progression
+            self.skip_next_progression[interaction.guild.id] = False
+            await self.play_next(interaction.guild, interaction=interaction)
             return
 
         # If no query, resume from stopped position or continue playing
@@ -317,7 +324,7 @@ class Music(commands.Cog):
         
         # Start playing if not already playing
         if not interaction.guild.voice_client.is_playing():
-            await self.play_next(interaction.guild)
+            await self.play_next(guild=interaction.guild, command_channel=interaction.channel)
             
     @app_commands.command(name="next", description="Play the next song")
     async def next(self, interaction: discord.Interaction):
@@ -349,7 +356,7 @@ class Music(commands.Cog):
         # Play next song
         next_song = self.bot.music_queues[interaction.guild.id][next_pos]['title']
         await interaction.response.send_message(f"Playing next song: {next_song}")
-        await self.play_next(interaction.guild, force_position=next_pos)
+        await self.play_next(interaction.guild, force_position=next_pos, command_channel=interaction.channel)
 
     @app_commands.command(name="previous", description="Play the previous song")
     async def previous(self, interaction: discord.Interaction):
@@ -377,7 +384,7 @@ class Music(commands.Cog):
             # Play the previous song
             prev_song = self.bot.music_queues[interaction.guild.id][prev_pos]['title']
             await interaction.response.send_message(f"Playing previous song: {prev_song}")
-            await self.play_next(interaction.guild, force_position=prev_pos)  # Use force_position
+            await self.play_next(interaction.guild, force_position=prev_pos, command_channel=interaction.channel)
         else:
             # If at the start of queue, go to the end if repeat mode is on
             if self.bot.repeat_modes.get(interaction.guild.id) == 'all':
@@ -394,7 +401,7 @@ class Music(commands.Cog):
                 
                 prev_song = self.bot.music_queues[interaction.guild.id][prev_pos]['title']
                 await interaction.response.send_message(f"Playing previous song: {prev_song}")
-                await self.play_next(interaction.guild, force_position=prev_pos)  # Use force_position
+                await self.play_next(interaction.guild, force_position=prev_pos, command_channel=interaction.channel)
             else:
                 await interaction.response.send_message("No previous songs in queue!")
 
@@ -453,6 +460,10 @@ class Music(commands.Cog):
     async def queue(self, interaction: discord.Interaction, query: Optional[str] = None, position: Optional[int] = None):
         await interaction.response.defer()
 
+        # Store the original channel when using queue command
+        if not interaction.guild.id in self.original_channels:
+            self.original_channels[interaction.guild.id] = interaction.channel
+
         # Show queue if no query and no position
         if not query and position is None:
             if not interaction.guild.id in self.bot.music_queues or not self.bot.music_queues[interaction.guild.id]:
@@ -490,11 +501,12 @@ class Music(commands.Cog):
             # Calculate position index
             position_index = position - 1
             
-            # Store the position to play next
+            # Store the position to play next with channel info
             self.bot.next_position = {
                 'guild_id': interaction.guild.id,
                 'position': position_index,
-                'suppress_message': True  # Add flag to suppress duplicate message
+                'suppress_message': True,  # Add flag to suppress duplicate message
+                'channel': interaction.channel  # Store the channel
             }
             
             selected_song = self.bot.music_queues[interaction.guild.id][position_index]['title']
@@ -563,10 +575,20 @@ class Music(commands.Cog):
         if not interaction.guild.id in self.bot.music_queues or not self.bot.music_queues[interaction.guild.id]:
             return await interaction.response.send_message("Queue is empty!")
         
-        current = self.bot.music_queues[interaction.guild.id][0]
-        remaining = self.bot.music_queues[interaction.guild.id][1:]
+        # Keep current playing song in its position
+        current_pos = self.current_position.get(interaction.guild.id, 0)
+        current = self.bot.music_queues[interaction.guild.id][current_pos]
+        
+        # Get all songs except current one
+        remaining = self.bot.music_queues[interaction.guild.id][:current_pos] + self.bot.music_queues[interaction.guild.id][current_pos + 1:]
         random.shuffle(remaining)
-        self.bot.music_queues[interaction.guild.id] = [current] + remaining
+        
+        # Reconstruct queue with current song in its original position
+        self.bot.music_queues[interaction.guild.id] = (
+            remaining[:current_pos] + 
+            [current] + 
+            remaining[current_pos:]
+        )
         
         await interaction.response.send_message("Queue shuffled!")
 
@@ -589,9 +611,10 @@ class Music(commands.Cog):
         # Check if there's a queued position to play next
         if hasattr(self.bot, 'next_position') and self.bot.next_position.get('guild_id') == guild.id:
             next_pos = self.bot.next_position['position']
+            channel = self.bot.next_position.get('channel')  # Get stored channel
             self.current_position[guild.id] = next_pos
             delattr(self.bot, 'next_position')  # Clear the queued position
-            await self.play_next(guild)
+            await self.play_next(guild, command_channel=channel)  # Use stored channel
             return
 
         # Handle normal progression
@@ -607,7 +630,11 @@ class Music(commands.Cog):
 
         # Update position and play next
         self.current_position[guild.id] = next_pos
-        await self.play_next(guild)
+        self.skip_next_progression[guild.id] = False
+        
+        # Use the original channel for messages
+        original_channel = self.original_channels.get(guild.id)
+        await self.play_next(guild, command_channel=original_channel)
 
     @app_commands.command(name="help", description="Shows all available commands")
     async def help(self, interaction: discord.Interaction):
