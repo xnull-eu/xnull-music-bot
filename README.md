@@ -51,7 +51,7 @@ Visit [xnull.eu](https://www.xnull.eu) for more projects and tools!
 
 2. Clone the repository:
     ```
-    git clone https://github.com/yourusername/xnull-music-bot.git
+    git clone https://github.com/xnull-eu/xnull-music-bot.git
     cd xnull-music-bot
     ```
 
