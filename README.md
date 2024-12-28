@@ -83,10 +83,11 @@ To create a standalone executable:
 ## Features in Detail
 
 ### Auto-updating FFmpeg
-- Automatically downloads and installs FFmpeg (~120MB)
+- Automatically downloads and installs FFmpeg (~150MB)
 - Checks for updates on startup
 - Keeps only necessary files
-- Downloads 7-Zip standalone extractor (~1MB) for extraction
+- Auto-updates when new version is available
+- Version tracking to ensure latest build
 
 ### Queue Management
 - Add songs anywhere in the queue
@@ -100,6 +101,7 @@ To create a standalone executable:
 - Pause/Resume
 - Next/Previous
 - Stop with position memory
+- Volume control
 - Loop modes (single, all, off)
 - Repeat modes (single, all, off)
 
@@ -122,5 +124,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [discord.py](https://github.com/Rapptz/discord.py) - Discord API wrapper
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) - YouTube downloader
-- [FFmpeg](https://www.ffmpeg.org/) - Media framework
-- [7-Zip](https://www.7-zip.org/) - File archiver
+- [GyanD/codexffmpeg](https://github.com/GyanD/codexffmpeg) - FFmpeg Windows builds

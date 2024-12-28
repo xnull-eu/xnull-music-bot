@@ -3,15 +3,13 @@ import sys
 import requests
 import logging
 import shutil
-import subprocess
-from pathlib import Path
 from bs4 import BeautifulSoup
+import zipfile
 
 logger = logging.getLogger(__name__)
 
 class FFmpegManager:
-    FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-full.7z"
-    SEVENZIP_URL = "https://www.7-zip.org/a/7zr.exe"  # 7-Zip standalone console version
+    FFMPEG_RELEASES_URL = "https://github.com/GyanD/codexffmpeg/releases/latest"
     
     def __init__(self):
         # Get the executable's directory path
@@ -25,31 +23,59 @@ class FFmpegManager:
         self.data_path = os.path.join(self.base_path, 'data')
         self.ffmpeg_path = os.path.join(self.data_path, 'ffmpeg')
         self.ffmpeg_exe = os.path.join(self.ffmpeg_path, 'bin', 'ffmpeg.exe')
-        self.sevenzip_path = os.path.join(self.data_path, '7zr.exe')
         self.install_marker = os.path.join(self.data_path, '.ffmpeg_installed')
+        self.version_file = os.path.join(self.ffmpeg_path, '.version')
 
     def is_installed(self):
         """Check if FFmpeg is installed and working"""
         return os.path.exists(self.ffmpeg_exe) and os.path.exists(self.install_marker)
 
-    def mark_as_installed(self):
-        """Mark FFmpeg as installed and save version info"""
+    def get_latest_version(self):
+        """Get latest FFmpeg version and download URL"""
+        try:
+            response = requests.get(self.FFMPEG_RELEASES_URL, allow_redirects=True)
+            latest_url = response.url
+            version = latest_url.split('/')[-1]
+            download_url = f"https://github.com/GyanD/codexffmpeg/releases/download/{version}/ffmpeg-{version}-full_build.zip"
+            return version, download_url
+        except Exception as e:
+            logger.error(f"Error getting latest version: {e}")
+            raise
+
+    def check_for_updates(self):
+        """Check if a newer version is available"""
+        if not os.path.exists(self.version_file):
+            return True
+            
+        try:
+            with open(self.version_file, 'r') as f:
+                current_version = f.read().strip()
+            
+            latest_version, _ = self.get_latest_version()
+            
+            if current_version != latest_version:
+                print(f"\nNew FFmpeg version available!")
+                print(f"Current: {current_version}")
+                print(f"Latest: {latest_version}")
+                return True
+                
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking for updates: {e}")
+            return False
+
+    def mark_as_installed(self, version):
+        """Mark FFmpeg as installed and save version"""
         os.makedirs(os.path.dirname(self.install_marker), exist_ok=True)
         
         # Save installation marker
         with open(self.install_marker, 'w') as f:
             f.write('installed')
-        
-        # Save version info
-        try:
-            response = requests.get("https://www.gyan.dev/ffmpeg/builds/")
-            soup = BeautifulSoup(response.text, 'html.parser')
-            latest_date = soup.find('em', id='last-git-build-date').text.strip()
             
-            with open(os.path.join(self.ffmpeg_path, '.version'), 'w') as f:
-                f.write(latest_date)
-        except:
-            pass
+        # Save version info
+        with open(self.version_file, 'w') as f:
+            f.write(version)
 
     def download_file(self, url, path, desc):
         """Download a file with progress bar"""
@@ -73,16 +99,9 @@ class FFmpegManager:
         print(f"\n{desc} download complete!")
         return path
 
-    def setup_7zip(self):
-        """Download and setup 7-Zip if needed"""
-        if not os.path.exists(self.sevenzip_path):
-            self.download_file(self.SEVENZIP_URL, self.sevenzip_path, "7-Zip")
-
     def extract_ffmpeg(self, archive_path):
-        """Extract FFmpeg using 7-Zip"""
+        """Extract FFmpeg from zip file"""
         print("\nExtracting FFmpeg...")
-        print(f"Archive path: {archive_path}")
-        print(f"Extraction path: {self.ffmpeg_path}")
         
         try:
             # Ensure extraction directory exists and is empty
@@ -90,21 +109,9 @@ class FFmpegManager:
                 shutil.rmtree(self.ffmpeg_path)
             os.makedirs(self.ffmpeg_path, exist_ok=True)
             
-            # Verify 7zip exists
-            if not os.path.exists(self.sevenzip_path):
-                raise Exception("7-Zip executable not found")
-            
-            # Use 7-Zip to extract
-            result = subprocess.run([
-                self.sevenzip_path,
-                'x',               # extract with full paths
-                archive_path,      # source archive
-                f'-o{self.ffmpeg_path}',  # output directory
-                '-y'              # yes to all queries
-            ], capture_output=True, text=True)
-            
-            if result.returncode != 0:
-                raise Exception(f"7-Zip extraction failed:\n{result.stderr}")
+            # Extract archive
+            with zipfile.ZipFile(archive_path, 'r') as archive:
+                archive.extractall(self.ffmpeg_path)
             
             # Find the extracted ffmpeg directory
             extracted_dirs = [d for d in os.listdir(self.ffmpeg_path) if d.startswith('ffmpeg-')]
@@ -140,16 +147,13 @@ class FFmpegManager:
             if self.is_installed():
                 # Check for updates if already installed
                 if self.check_for_updates():
-                    print("\nUpdating FFmpeg to latest version...")
+                    print("\nUpdating FFmpeg...")
                 else:
                     print("FFmpeg is already installed and up to date!")
                     return True
             else:
                 print("\nFFmpeg is required to run the bot.")
-                print("This will download and install:")
-                print("1. FFmpeg (~120MB)")
-                print("2. 7-Zip standalone extractor (~1MB)")
-                print("\nTotal download size: ~121MB")
+                print("This will download and install FFmpeg (~150MB)")
                 
                 response = input("\nDo you want to continue? (y/n): ").lower().strip()
                 if response != 'y':
@@ -158,24 +162,20 @@ class FFmpegManager:
             
             print("\nSetting up FFmpeg...")
             
-            # Create necessary directories first
+            # Get latest version and download URL
+            version, download_url = self.get_latest_version()
+            
+            # Create necessary directories
             os.makedirs(self.data_path, exist_ok=True)
             os.makedirs(self.ffmpeg_path, exist_ok=True)
             
-            # Setup 7-Zip first
-            self.setup_7zip()
-            
             # Download FFmpeg
-            archive_path = os.path.join(self.data_path, 'ffmpeg.7z')  # Changed path
+            archive_path = os.path.join(self.data_path, f'ffmpeg-{version}.zip')
             archive_path = self.download_file(
-                self.FFMPEG_URL,
+                download_url,
                 archive_path,
                 "FFmpeg"
             )
-            
-            # Verify the file exists before extraction
-            if not os.path.exists(archive_path):
-                raise Exception("FFmpeg download failed - archive not found")
             
             # Extract it
             self.extract_ffmpeg(archive_path)
@@ -183,56 +183,18 @@ class FFmpegManager:
             # Clean up unnecessary files
             self.cleanup_ffmpeg()
             
-            # Mark as installed
-            self.mark_as_installed()
+            # Mark as installed with version
+            self.mark_as_installed(version)
             
             print("\nFFmpeg setup complete!")
             return True
             
         except Exception as e:
             logger.error(f"Error setting up FFmpeg: {e}")
-            if os.path.exists(self.sevenzip_path):
-                logger.error(f"7-Zip path: {self.sevenzip_path} (exists)")
-            else:
-                logger.error(f"7-Zip path: {self.sevenzip_path} (missing)")
             raise
 
-    def check_for_updates(self):
-        """Check for FFmpeg updates"""
-        try:
-            response = requests.get("https://www.gyan.dev/ffmpeg/builds/")
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Get latest build date from website
-            latest_date_elem = soup.find('em', id='last-git-build-date')
-            if not latest_date_elem:
-                return False
-                
-            latest_date = latest_date_elem.text.strip()
-            
-            # Read current version date
-            version_file = os.path.join(self.ffmpeg_path, '.version')
-            if os.path.exists(version_file):
-                with open(version_file, 'r') as f:
-                    current_date = f.read().strip()
-                
-                if current_date != latest_date:
-                    print(f"\nNew FFmpeg version available!")
-                    print(f"Current: {current_date}")
-                    print(f"Latest: {latest_date}")
-                    return True
-            else:
-                # No version file, force update
-                return True
-                
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error checking for updates: {e}")
-            return False
-
     def cleanup_ffmpeg(self):
-        """Clean up unnecessary FFmpeg files, keeping only essential files"""
+        """Clean up unnecessary FFmpeg files"""
         try:
             # Keep only bin directory and .version file
             for item in os.listdir(self.ffmpeg_path):
