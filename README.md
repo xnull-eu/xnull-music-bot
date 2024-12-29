@@ -101,7 +101,6 @@ To create a standalone executable:
 - Pause/Resume
 - Next/Previous
 - Stop with position memory
-- Volume control
 - Loop modes (single, all, off)
 - Repeat modes (single, all, off)
 
