@@ -23,12 +23,16 @@ Visit [xnull.eu](https://www.xnull.eu) for more projects and tools!
 - `/pause` - Pause the current song
 - `/next` - Play the next song
 - `/previous` - Play the previous song
-- `/stop` - Stop the current song (queue preserved)
+- `/stop` - Stop the current song (clears queue if auto-clear is on)
 - `/clearqueue` - Clear all songs from queue except current
 - `/repeat off/all/single` - Set repeat mode for queue
 - `/loop off/on/single` - Loop current song
 - `/disconnect` - Disconnect bot from voice channel
-- `/queue [song/URL] [position]` - Show queue or add songs
+- `/queue [song/URL] [position] [action]` - Manage queue
+    - Show current queue
+    - Add songs to queue
+    - Clear queue (keeps current song playing)
+    - Enable/disable auto-clear on stop
 - `/shuffle` - Shuffle the current queue
 - `/setstatus` - Set bot status (Admin only)
 
@@ -101,6 +105,7 @@ To create a standalone executable:
 - Pause/Resume
 - Next/Previous
 - Stop with position memory
+- Volume control
 - Loop modes (single, all, off)
 - Repeat modes (single, all, off)
 
