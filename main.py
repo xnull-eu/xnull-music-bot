@@ -106,14 +106,14 @@ def download_update(download_url):
         else:
             return False
             
-        # Download new version
+        # Download new version with temp name in same directory
+        temp_exe = current_exe + ".new"
+        
         print("\nDownloading update...")
         response = requests.get(download_url, stream=True)
         total_size = int(response.headers.get('content-length', 0))
         
-        # Save as temporary file
-        new_exe = current_exe + ".new"
-        with open(new_exe, 'wb') as f:
+        with open(temp_exe, 'wb') as f:
             downloaded = 0
             for data in response.iter_content(1024):
                 downloaded += len(data)
@@ -123,45 +123,25 @@ def download_update(download_url):
                 sys.stdout.flush()
                 
         print("\nUpdate downloaded successfully!")
-        return new_exe
+        print("\nPlease close this version and run the new one.")
+        print("The old version will be deleted automatically when you close it.")
+        
+        # Create cleanup script
+        batch_path = "cleanup.bat"
+        with open(batch_path, 'w') as f:
+            f.write('@echo off\n')
+            f.write(f'timeout /t 1 /nobreak >nul\n')
+            f.write(f'del "{current_exe}"\n')  # Delete old version
+            f.write(f'move "{temp_exe}" "{current_exe}"\n')  # Rename new version to original name
+            f.write(f'del "%~f0"\n')  # Delete this batch file
+            
+        # Run cleanup script when this process exits
+        subprocess.Popen(batch_path, shell=True)
+        return temp_exe
         
     except Exception as e:
         logger.error(f"Error downloading update: {e}")
         return None
-
-def apply_update(new_exe):
-    """Apply the update by replacing the old exe"""
-    if not getattr(sys, 'frozen', False):
-        return
-        
-    try:
-        current_exe = sys.executable
-        
-        # Create batch script to:
-        # 1. Wait for current process to exit
-        # 2. Move new version to a temp name
-        # 3. Move old version to backup name
-        # 4. Move new version to original name
-        # 5. Delete backup and start new version
-        batch_path = "update.bat"
-        with open(batch_path, 'w') as f:
-            f.write('@echo off\n')
-            f.write(f'timeout /t 1 /nobreak >nul\n')  # Wait a bit
-            f.write(f'move "{new_exe}" "{current_exe}.tmp"\n')  # Move new version to temp
-            f.write(f'move "{current_exe}" "{current_exe}.backup"\n')  # Backup old version
-            f.write(f'move "{current_exe}.tmp" "{current_exe}"\n')  # Move new version to correct place
-            f.write(f'del "{current_exe}.backup"\n')  # Delete old version
-            f.write(f'start "" "{current_exe}"\n')  # Start new version
-            f.write(f'del "%~f0"\n')  # Delete this batch file
-            
-        # Run the update script and exit
-        subprocess.Popen(batch_path, shell=True)
-        sys.exit()
-        
-    except Exception as e:
-        logger.error(f"Error applying update: {e}")
-        if os.path.exists(new_exe):
-            os.remove(new_exe)
 
 def run_bot():
     # Create data directory if it doesn't exist
@@ -177,9 +157,8 @@ def run_bot():
         print("\nNew version available! Downloading update...")
         new_exe = download_update(download_url)
         if new_exe:
-            print("\nRestarting to apply update...")
-            apply_update(new_exe)
-            return
+            input("\nPress Enter to exit...")
+            sys.exit()
     
     # Initialize the bot
     bot = MusicBot()
