@@ -35,22 +35,20 @@ def build_exe():
         # PyNaCl related imports
         '--hidden-import=PyNaCl',
         '--hidden-import=nacl',
+        # System related imports
+        '--hidden-import=ctypes',
+        '--hidden-import=ctypes.wintypes',
         # Web/parsing related imports
         '--hidden-import=requests',
         '--hidden-import=bs4',
         '--hidden-import=beautifulsoup4',
         '--hidden-import=soupsieve',  # Required by beautifulsoup4
-        # Version checking related imports
-        '--hidden-import=packaging',
-        '--hidden-import=packaging.version',
-        '--hidden-import=packaging.specifiers',
         # Collect all packages
         '--collect-all=yt_dlp',
         '--collect-all=discord',
         '--collect-all=nacl',
         '--collect-all=bs4',
         '--collect-all=requests',
-        '--collect-all=packaging',
     ])
     
     print("\nBuild complete! Check the 'dist' folder for your executable.")
