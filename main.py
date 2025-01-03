@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Add these at the top with other imports
 GITHUB_REPO = "xnull-eu/xnull-music-bot"
-CURRENT_VERSION = "v1.0.3"  # Update this with each release
+CURRENT_VERSION = "v1.0.4"  # Update this with each release
 
 class MusicBot(commands.Bot):
     def __init__(self):
