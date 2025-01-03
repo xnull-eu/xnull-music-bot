@@ -692,10 +692,23 @@ class Music(commands.Cog):
         # Check if there's a queued position to play next
         if hasattr(self.bot, 'next_position') and self.bot.next_position.get('guild_id') == guild.id:
             next_pos = self.bot.next_position['position']
-            channel = self.bot.next_position.get('channel')  # Get stored channel
+            channel = self.bot.next_position.get('channel')
             self.current_position[guild.id] = next_pos
-            delattr(self.bot, 'next_position')  # Clear the queued position
-            await self.play_next(guild, command_channel=channel)  # Use stored channel
+            delattr(self.bot, 'next_position')
+            await self.play_next(guild, command_channel=channel)
+            return
+
+        # Handle loop mode
+        if self.bot.loop_modes.get(guild.id) == 'single':
+            # Play current song one more time then disable loop
+            current_pos = self.current_position.get(guild.id, 0)
+            self.bot.loop_modes[guild.id] = 'off'  # Disable after one repeat
+            await self.play_next(guild, force_position=current_pos)
+            return
+        elif self.bot.loop_modes.get(guild.id) == 'on':
+            # Keep playing current song
+            current_pos = self.current_position.get(guild.id, 0)
+            await self.play_next(guild, force_position=current_pos)
             return
 
         # Handle normal progression
@@ -706,6 +719,9 @@ class Music(commands.Cog):
         if next_pos >= len(self.bot.music_queues[guild.id]):
             if self.bot.repeat_modes.get(guild.id) == 'all':
                 next_pos = 0  # Start from beginning
+            elif self.bot.repeat_modes.get(guild.id) == 'single':
+                next_pos = 0  # Start from beginning
+                self.bot.repeat_modes[guild.id] = 'off'  # Disable after one full repeat
             else:
                 # If we have a current_song from queue clear, clear it
                 if hasattr(self, 'current_song') and self.current_song:
