@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Add these at the top with other imports
 GITHUB_REPO = "xnull-eu/xnull-music-bot"
-CURRENT_VERSION = "v1.0.4"  # Update this with each release
+CURRENT_VERSION = "v1.0.3"  # Update this with each release
 
 class MusicBot(commands.Bot):
     def __init__(self):
@@ -139,15 +139,18 @@ def apply_update(new_exe):
         
         # Create batch script to:
         # 1. Wait for current process to exit
-        # 2. Replace old exe with new one
-        # 3. Start new version
-        # 4. Delete itself
+        # 2. Move new version to a temp name
+        # 3. Move old version to backup name
+        # 4. Move new version to original name
+        # 5. Delete backup and start new version
         batch_path = "update.bat"
         with open(batch_path, 'w') as f:
             f.write('@echo off\n')
             f.write(f'timeout /t 1 /nobreak >nul\n')  # Wait a bit
-            f.write(f'del "{current_exe}"\n')  # Delete old version
-            f.write(f'move "{new_exe}" "{current_exe}"\n')  # Move new version
+            f.write(f'move "{new_exe}" "{current_exe}.tmp"\n')  # Move new version to temp
+            f.write(f'move "{current_exe}" "{current_exe}.backup"\n')  # Backup old version
+            f.write(f'move "{current_exe}.tmp" "{current_exe}"\n')  # Move new version to correct place
+            f.write(f'del "{current_exe}.backup"\n')  # Delete old version
             f.write(f'start "" "{current_exe}"\n')  # Start new version
             f.write(f'del "%~f0"\n')  # Delete this batch file
             
@@ -164,6 +167,10 @@ def run_bot():
     # Create data directory if it doesn't exist
     os.makedirs('data', exist_ok=True)
     
+    print("=== XNull Music Bot ===")
+    print(f"Version: {CURRENT_VERSION}")
+    print("\nVisit https://www.xnull.eu for more projects and tools!")
+    
     # Check for updates before starting
     has_update, download_url = check_for_updates()
     if has_update:
@@ -176,9 +183,6 @@ def run_bot():
     
     # Initialize the bot
     bot = MusicBot()
-    
-    print("=== XNull Music Bot ===")
-    print("\nVisit https://www.xnull.eu for more projects and tools!")
     
     # Setup FFmpeg before starting the bot
     try:
