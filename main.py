@@ -4,25 +4,123 @@ import asyncio
 import logging
 import os
 import sys
+import requests
+import shutil
 from datetime import datetime
 from utils.ffmpeg_manager import setup_ffmpeg
-import requests
-import subprocess
-from packaging import version
+import ctypes
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler()  # Only keep console logging
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-# Add these at the top with other imports
-GITHUB_REPO = "xnull-eu/xnull-music-bot"
-CURRENT_VERSION = "v1.0.3"  # Update this with each release
+# Constants
+GITHUB_API_URL = "https://api.github.com/repos/xnull-eu/xnull-music-bot/releases/latest"
+CURRENT_VERSION = "v1.0.4"  # Update this with each release
+
+def check_for_updates():
+    """Check GitHub for new bot version"""
+    if not getattr(sys, 'frozen', False):
+        return False, None  # Skip update check if not running as exe
+        
+    try:
+        response = requests.get(GITHUB_API_URL)
+        if response.status_code != 200:
+            return False, None
+            
+        latest = response.json()
+        latest_version = latest['tag_name']
+        
+        if latest_version > CURRENT_VERSION:
+            download_url = f"https://github.com/xnull-eu/xnull-music-bot/releases/download/{latest_version}/XNull.Music.Bot.exe"
+            return True, (latest_version, download_url)
+            
+        return False, None
+            
+    except Exception as e:
+        logger.error(f"Error checking for updates: {e}")
+        return False, None
+
+def is_admin():
+    """Check if running with admin privileges"""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+def run_as_admin():
+    """Restart the script with admin privileges for update only"""
+    try:
+        if sys.argv[-1] != '--auto-update':
+            args = [sys.executable] + sys.argv + ['--auto-update']
+        else:
+            args = [sys.executable] + sys.argv
+            
+        ctypes.windll.shell32.ShellExecuteW(
+            None, 
+            "runas", 
+            sys.executable,
+            " ".join(['"{}"'.format(arg) for arg in args[1:]]),
+            None, 
+            1
+        )
+        sys.exit()
+    except Exception as e:
+        logger.error(f"Error running as admin: {e}")
+        return False
+
+def update_bot(new_version, download_url):
+    """Download and prepare new version"""
+    try:
+        print(f"\nDownloading new version {new_version}...")
+        
+        # Download new version
+        response = requests.get(download_url, stream=True)
+        temp_exe = "XNull.Music.Bot.temp"
+        
+        with open(temp_exe, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        
+        # Create update batch script
+        current_exe = sys.executable
+        batch_content = f'''@echo off
+:wait
+taskkill /F /IM "{os.path.basename(current_exe)}" >nul 2>&1
+if exist "{current_exe}" (
+    del /F "{current_exe}" >nul 2>&1
+    if exist "{current_exe}" (
+        timeout /t 1 /nobreak >nul
+        goto wait
+    )
+)
+move /Y "{temp_exe}" "{current_exe}" >nul 2>&1
+del "%~f0"
+exit
+'''
+        
+        with open("update.bat", 'w') as f:
+            f.write(batch_content)
+        
+        print("\nUpdate downloaded. Closing bot and installing update...")
+        # Run update script and exit
+        os.system('start /min cmd /c update.bat')
+        sys.exit()
+        
+    except Exception as e:
+        logger.error(f"Error updating bot: {e}")
+        if os.path.exists(temp_exe):
+            os.remove(temp_exe)
+        if os.path.exists("update.bat"):
+            os.remove("update.bat")
+        return False
 
 class MusicBot(commands.Bot):
     def __init__(self):
@@ -72,117 +170,47 @@ class MusicBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to sync commands: {e}")
 
-def check_for_updates():
-    """Check GitHub for new bot version"""
-    if not getattr(sys, 'frozen', False):
-        return False, None  # Skip update check if not running as exe
-        
-    try:
-        # Get latest release info
-        response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
-        if response.status_code != 200:
-            return False, None
-            
-        latest = response.json()
-        latest_version = latest['tag_name']
-        
-        # Compare versions
-        if version.parse(latest_version) > version.parse(CURRENT_VERSION):
-            download_url = f"https://github.com/{GITHUB_REPO}/releases/download/{latest_version}/XNull.Music.Bot.exe"
-            return True, download_url
-            
-        return False, None
-        
-    except Exception as e:
-        logger.error(f"Error checking for updates: {e}")
-        return False, None
-
-def download_update(download_url):
-    """Download new version of the bot"""
-    try:
-        # Get current exe path
-        if getattr(sys, 'frozen', False):
-            current_exe = sys.executable
-        else:
-            return False
-            
-        # Download new version
-        print("\nDownloading update...")
-        response = requests.get(download_url, stream=True)
-        total_size = int(response.headers.get('content-length', 0))
-        
-        # Save as temporary file
-        new_exe = current_exe + ".new"
-        with open(new_exe, 'wb') as f:
-            downloaded = 0
-            for data in response.iter_content(1024):
-                downloaded += len(data)
-                f.write(data)
-                done = int(50 * downloaded / total_size)
-                sys.stdout.write(f'\rDownloading: [{"█" * done}{"." * (50-done)}] {downloaded}/{total_size} bytes')
-                sys.stdout.flush()
-                
-        print("\nUpdate downloaded successfully!")
-        return new_exe
-        
-    except Exception as e:
-        logger.error(f"Error downloading update: {e}")
-        return None
-
-def apply_update(new_exe):
-    """Apply the update by replacing the old exe"""
-    if not getattr(sys, 'frozen', False):
-        return
-        
-    try:
-        current_exe = sys.executable
-        
-        # Create batch script to:
-        # 1. Wait for current process to exit
-        # 2. Move new version to a temp name
-        # 3. Move old version to backup name
-        # 4. Move new version to original name
-        # 5. Delete backup and start new version
-        batch_path = "update.bat"
-        with open(batch_path, 'w') as f:
-            f.write('@echo off\n')
-            f.write(f'timeout /t 1 /nobreak >nul\n')  # Wait a bit
-            f.write(f'move "{new_exe}" "{current_exe}.tmp"\n')  # Move new version to temp
-            f.write(f'move "{current_exe}" "{current_exe}.backup"\n')  # Backup old version
-            f.write(f'move "{current_exe}.tmp" "{current_exe}"\n')  # Move new version to correct place
-            f.write(f'del "{current_exe}.backup"\n')  # Delete old version
-            f.write(f'start "" "{current_exe}"\n')  # Start new version
-            f.write(f'del "%~f0"\n')  # Delete this batch file
-            
-        # Run the update script and exit
-        subprocess.Popen(batch_path, shell=True)
-        sys.exit()
-        
-    except Exception as e:
-        logger.error(f"Error applying update: {e}")
-        if os.path.exists(new_exe):
-            os.remove(new_exe)
-
 def run_bot():
     # Create data directory if it doesn't exist
     os.makedirs('data', exist_ok=True)
     
-    print("=== XNull Music Bot ===")
-    print(f"Version: {CURRENT_VERSION}")
-    print("\nVisit https://www.xnull.eu for more projects and tools!")
-    
-    # Check for updates before starting
-    has_update, download_url = check_for_updates()
-    if has_update:
-        print("\nNew version available! Downloading update...")
-        new_exe = download_update(download_url)
-        if new_exe:
-            print("\nRestarting to apply update...")
-            apply_update(new_exe)
-            return
-    
     # Initialize the bot
     bot = MusicBot()
+    
+    print("=== XNull Music Bot ===")
+    print(f"\nCurrent Version: {CURRENT_VERSION}")
+    print("\nVisit https://www.xnull.eu for more projects and tools!")
+    
+    # Check for updates if running as exe
+    if getattr(sys, 'frozen', False):
+        print("\nChecking for updates...")
+        update_available, update_info = check_for_updates()
+        
+        if update_available:
+            print(f"\nNew version available: {update_info[0]}")
+            
+            # If auto-update flag is set, proceed with update
+            if '--auto-update' in sys.argv:
+                print("\nStarting update process...")
+                update_bot(update_info[0], update_info[1])
+                return
+            
+            # Otherwise, ask for confirmation
+            print("\nNote: The update process requires administrator privileges.")
+            print("The bot will run normally after the update.")
+            response = input("Do you want to update now? (y/n): ").lower().strip()
+            
+            if response == 'y':
+                if not is_admin():
+                    print("\nRestarting with administrator privileges for update...")
+                    run_as_admin()
+                    return
+                else:
+                    print("\nStarting update process...")
+                    update_bot(update_info[0], update_info[1])
+                    return
+            else:
+                print("\nUpdate skipped. Continuing with current version.")
     
     # Setup FFmpeg before starting the bot
     try:
