@@ -6,6 +6,9 @@ import os
 import sys
 from datetime import datetime
 from utils.ffmpeg_manager import setup_ffmpeg
+import requests
+import subprocess
+from packaging import version
 
 # Configure logging
 logging.basicConfig(
@@ -16,6 +19,10 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Add these at the top with other imports
+GITHUB_REPO = "xnull-eu/xnull-music-bot"
+CURRENT_VERSION = "v1.0.3"  # Update this with each release
 
 class MusicBot(commands.Bot):
     def __init__(self):
@@ -65,9 +72,107 @@ class MusicBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to sync commands: {e}")
 
+def check_for_updates():
+    """Check GitHub for new bot version"""
+    if not getattr(sys, 'frozen', False):
+        return False, None  # Skip update check if not running as exe
+        
+    try:
+        # Get latest release info
+        response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
+        if response.status_code != 200:
+            return False, None
+            
+        latest = response.json()
+        latest_version = latest['tag_name']
+        
+        # Compare versions
+        if version.parse(latest_version) > version.parse(CURRENT_VERSION):
+            download_url = f"https://github.com/{GITHUB_REPO}/releases/download/{latest_version}/XNull.Music.Bot.exe"
+            return True, download_url
+            
+        return False, None
+        
+    except Exception as e:
+        logger.error(f"Error checking for updates: {e}")
+        return False, None
+
+def download_update(download_url):
+    """Download new version of the bot"""
+    try:
+        # Get current exe path
+        if getattr(sys, 'frozen', False):
+            current_exe = sys.executable
+        else:
+            return False
+            
+        # Download new version
+        print("\nDownloading update...")
+        response = requests.get(download_url, stream=True)
+        total_size = int(response.headers.get('content-length', 0))
+        
+        # Save as temporary file
+        new_exe = current_exe + ".new"
+        with open(new_exe, 'wb') as f:
+            downloaded = 0
+            for data in response.iter_content(1024):
+                downloaded += len(data)
+                f.write(data)
+                done = int(50 * downloaded / total_size)
+                sys.stdout.write(f'\rDownloading: [{"█" * done}{"." * (50-done)}] {downloaded}/{total_size} bytes')
+                sys.stdout.flush()
+                
+        print("\nUpdate downloaded successfully!")
+        return new_exe
+        
+    except Exception as e:
+        logger.error(f"Error downloading update: {e}")
+        return None
+
+def apply_update(new_exe):
+    """Apply the update by replacing the old exe"""
+    if not getattr(sys, 'frozen', False):
+        return
+        
+    try:
+        current_exe = sys.executable
+        
+        # Create batch script to:
+        # 1. Wait for current process to exit
+        # 2. Replace old exe with new one
+        # 3. Start new version
+        # 4. Delete itself
+        batch_path = "update.bat"
+        with open(batch_path, 'w') as f:
+            f.write('@echo off\n')
+            f.write(f'timeout /t 1 /nobreak >nul\n')  # Wait a bit
+            f.write(f'del "{current_exe}"\n')  # Delete old version
+            f.write(f'move "{new_exe}" "{current_exe}"\n')  # Move new version
+            f.write(f'start "" "{current_exe}"\n')  # Start new version
+            f.write(f'del "%~f0"\n')  # Delete this batch file
+            
+        # Run the update script and exit
+        subprocess.Popen(batch_path, shell=True)
+        sys.exit()
+        
+    except Exception as e:
+        logger.error(f"Error applying update: {e}")
+        if os.path.exists(new_exe):
+            os.remove(new_exe)
+
 def run_bot():
     # Create data directory if it doesn't exist
     os.makedirs('data', exist_ok=True)
+    
+    # Check for updates before starting
+    has_update, download_url = check_for_updates()
+    if has_update:
+        print("\nNew version available! Downloading update...")
+        new_exe = download_update(download_url)
+        if new_exe:
+            print("\nRestarting to apply update...")
+            apply_update(new_exe)
+            return
     
     # Initialize the bot
     bot = MusicBot()
