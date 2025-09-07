@@ -122,7 +122,7 @@ For issues, suggestions, or contributions, please visit [xnull.eu](https://www.x
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](https://raw.githubusercontent.com/xnull-eu/xnull-music-bot/refs/heads/main/LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
